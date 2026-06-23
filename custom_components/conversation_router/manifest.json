@@ -1,0 +1,13 @@
+{
+  "domain": "conversation_router",
+  "name": "Conversation Router",
+  "version": "1.0.0",
+  "dependencies": ["conversation"],
+  "documentation": "https://github.com/oooshk/ha-conversation-router",
+  "issue_tracker": "https://github.com/oooshk/ha-conversation-router/issues",
+  "codeowners": ["@oooshk"],
+  "integration_type": "service",
+  "requirements": [],
+  "config_flow": true,
+  "iot_class": "calculated"
+}

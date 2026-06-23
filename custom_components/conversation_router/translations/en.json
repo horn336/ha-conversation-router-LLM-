@@ -1,0 +1,30 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Conversation Router",
+        "description": "Creates one conversation agent that forwards each request to whichever underlying agent you configure. After setup, open this integration's Configure dialog to set the default agent and routing rules."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Only one Conversation Router is needed - configure its rules from the integration's options instead of adding another."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Conversation Router rules",
+        "description": "Rules are checked in order. The first rule whose condition evaluates to true picks the agent used for that request. If no rule matches (or none are set), the default agent is used. Conditions are Jinja templates, e.g. checking whether a connectivity binary_sensor is on or off.",
+        "data": {
+          "default_agent": "Default agent (used when no rule matches)",
+          "rule1_condition": "Rule 1 condition",
+          "rule1_agent": "Rule 1 agent",
+          "rule2_condition": "Rule 2 condition",
+          "rule2_agent": "Rule 2 agent",
+          "rule3_condition": "Rule 3 condition",
+          "rule3_agent": "Rule 3 agent"
+        }
+      }
+    }
+  }
+}
