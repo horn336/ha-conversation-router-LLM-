@@ -14,7 +14,7 @@
     "step": {
       "init": {
         "title": "Conversation Router rules",
-        "description": "Rules are checked in order. The first rule whose condition evaluates to true picks the agent used for that request. If no rule matches (or none are set), the default agent is used. Conditions are Jinja templates, e.g. checking whether a connectivity binary_sensor is on or off.",
+        "description": "Rules are checked in order. The first rule whose condition evaluates to true picks the agent used for that request. If no rule matches (or none are set), the default agent is used. Conditions are Jinja templates, e.g. checking whether a connectivity binary_sensor is on or off. Fallback: if a fallback agent is set, any reply from the chosen agent that is an error or whose speech matches one of the fallback patterns (one regular expression per line, case-insensitive) is treated as \"not understood\" and the same request is sent to the fallback agent instead. Clear the patterns box to fall back on errors only.",
         "data": {
           "default_agent": "Default agent (used when no rule matches)",
           "rule1_condition": "Rule 1 condition",
@@ -22,9 +22,15 @@
           "rule2_condition": "Rule 2 condition",
           "rule2_agent": "Rule 2 agent",
           "rule3_condition": "Rule 3 condition",
-          "rule3_agent": "Rule 3 agent"
+          "rule3_agent": "Rule 3 agent",
+          "fallback_agent": "Fallback agent (used when the chosen agent does not understand)",
+          "fallback_on_error": "Fall back when the chosen agent returns an error response",
+          "fallback_patterns": "\"Not understood\" reply patterns (one regex per line)"
         }
       }
+    },
+    "error": {
+      "invalid_pattern": "One of the fallback patterns is not a valid regular expression."
     }
   }
 }

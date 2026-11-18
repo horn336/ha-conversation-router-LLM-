@@ -32,6 +32,39 @@ condition works: time of day, an `input_boolean` toggle, occupancy, a
 specific device's state, etc. Pair it with as many or as few rules as you
 need.
 
+## Fallback on "not understood"
+
+Optionally set a **fallback agent**. Every request still goes to the agent
+picked by your rules/default first; if that agent's reply means it did not
+understand, the router throws the reply away and sends the same input
+(text, conversation id, device, satellite, language) to the fallback agent,
+whose answer is what you hear.
+
+A reply counts as "not understood" when either:
+
+- **it is an error response** (`response_type: error`, e.g. the built-in
+  agent's `no_intent_match` / `no_valid_targets`) and *Fall back when the
+  chosen agent returns an error response* is on (the default), or
+- **its speech matches a "not understood" pattern** — one regular expression
+  per line, case-insensitive, searched anywhere in the reply. This is needed
+  for agents such as Sophia NLU that report every reply as `action_done`,
+  so the wording is the only signal. The defaults cover every "no match",
+  "device not found" and connection/timeout reply Sophia NLU gives. Clear the
+  box to fall back on error responses only.
+
+Typical setup: a fast local NLU (e.g. Sophia NLU) as the default agent and a
+local LLM (e.g. Qwen via LM Studio/Ollama) as the fallback, so commands stay
+instant and anything else is answered by the LLM. The fallback never fires
+when the fallback agent is the one that just answered, or is the router itself.
+
+**Limitation:** the router can only catch replies that *say* they failed. If
+the first agent confidently matches the wrong intent (an NLU without a
+confidence score fuzzy-matching a question onto some device), that reply looks
+like success and is returned as-is — and any action it took has already run.
+
+Each fallback is logged at `info` level by
+`custom_components.conversation_router`.
+
 ## Installation (HACS)
 
 1. HACS → **⋮** → **Custom repositories**.

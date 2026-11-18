@@ -1,13 +1,27 @@
 """Config flow for Conversation Router."""
 from __future__ import annotations
 
+import re
+
 import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 
-from .const import CONF_AGENT, CONF_CONDITION, CONF_DEFAULT_AGENT, CONF_RULES, DOMAIN, MAX_RULES
+from .const import (
+    CONF_AGENT,
+    CONF_CONDITION,
+    CONF_DEFAULT_AGENT,
+    CONF_FALLBACK_AGENT,
+    CONF_FALLBACK_ON_ERROR,
+    CONF_FALLBACK_PATTERNS,
+    CONF_RULES,
+    DEFAULT_FALLBACK_PATTERNS,
+    DOMAIN,
+    MAX_RULES,
+)
+from .conversation import compile_patterns
 
 
 def _agent_selector() -> selector.EntitySelector:
@@ -42,7 +56,15 @@ class ConversationRouterOptionsFlow(config_entries.OptionsFlow):
     """Lets the user pick which agent to use, and the conditions that select it."""
 
     async def async_step_init(self, user_input=None):
+        errors: dict[str, str] = {}
         if user_input is not None:
+            patterns = user_input.get(CONF_FALLBACK_PATTERNS) or ""
+            try:
+                compile_patterns(patterns)
+            except re.error:
+                errors[CONF_FALLBACK_PATTERNS] = "invalid_pattern"
+
+        if user_input is not None and not errors:
             rules = []
             for i in range(1, MAX_RULES + 1):
                 condition = (user_input.get(f"rule{i}_condition") or "").strip()
@@ -54,10 +76,14 @@ class ConversationRouterOptionsFlow(config_entries.OptionsFlow):
                 data={
                     CONF_DEFAULT_AGENT: user_input[CONF_DEFAULT_AGENT],
                     CONF_RULES: rules,
+                    CONF_FALLBACK_AGENT: user_input.get(CONF_FALLBACK_AGENT),
+                    CONF_FALLBACK_ON_ERROR: user_input.get(CONF_FALLBACK_ON_ERROR, True),
+                    CONF_FALLBACK_PATTERNS: patterns,
                 }
             )
 
-        current = self.config_entry.options
+        # On a validation error, re-show what the user typed rather than the saved options.
+        current = {**self.config_entry.options, **(user_input or {})}
         current_rules = current.get(CONF_RULES, [])
 
         def rule_condition(i: int) -> str:
@@ -87,4 +113,29 @@ class ConversationRouterOptionsFlow(config_entries.OptionsFlow):
                 )
             ] = _agent_selector()
 
-        return self.async_show_form(step_id="init", data_schema=vol.Schema(schema_dict))
+        schema_dict[
+            vol.Optional(
+                CONF_FALLBACK_AGENT,
+                description={"suggested_value": current.get(CONF_FALLBACK_AGENT)},
+            )
+        ] = _agent_selector()
+        schema_dict[
+            vol.Optional(
+                CONF_FALLBACK_ON_ERROR,
+                default=current.get(CONF_FALLBACK_ON_ERROR, True),
+            )
+        ] = selector.BooleanSelector()
+        schema_dict[
+            vol.Optional(
+                CONF_FALLBACK_PATTERNS,
+                description={
+                    "suggested_value": current.get(
+                        CONF_FALLBACK_PATTERNS, DEFAULT_FALLBACK_PATTERNS
+                    )
+                },
+            )
+        ] = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
+
+        return self.async_show_form(
+            step_id="init", data_schema=vol.Schema(schema_dict), errors=errors
+        )
