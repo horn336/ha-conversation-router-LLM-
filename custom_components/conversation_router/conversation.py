@@ -212,19 +212,49 @@ class ConversationRouterEntity(conversation.ConversationEntity, conversation.Abs
             _LOGGER.debug("Conversation Router: grounding pre-check skipped (%s)", err)
             return None
 
+        # Sophia already says she won't understand: go straight to the fallback.
+        # Forwarding anyway would make her recognize the text a second time, and
+        # her matching isn't deterministic (a re-run can bind a device).
+        for text in grounding.respond_texts(results):
+            for pattern in self._fallback_patterns:
+                if pattern.search(text):
+                    return f"pre-check reply {text!r} matched {pattern.pattern!r}"
+
         try:
-            for intent_name, entity_id, params in grounding.matched_targets(results):
+            for intent_name, entity_id, slots, params in grounding.matched_targets(results):
+                vocab = self._target_vocab(entity_id, slots)
                 left = grounding.unexplained_words(
-                    user_input.text,
-                    self._entity_vocab(entity_id),
-                    params,
-                    self._grounding_extra,
+                    user_input.text, vocab, params, self._grounding_extra
                 )
                 if left:
-                    return f"{intent_name} on {entity_id} leaves {', '.join(left)} unexplained"
+                    target = entity_id or ", ".join(
+                        f"{k}={v}" for k, v in slots.items() if k != "common_name"
+                    )
+                    return f"{intent_name} on {target} leaves {', '.join(left)} unexplained"
         except Exception:  # noqa: BLE001 - a broken check must not break the assistant
             _LOGGER.exception("Conversation Router: grounding check failed; not applied")
         return None
+
+    def _target_vocab(self, entity_id: str | None, slots: dict[str, str]) -> set[str]:
+        """Words that can refer to the match: the entity, else its name/domain/area/floor slots.
+
+        common_name is never used: it is the phrase Sophia lifted from the
+        sentence, so it would "explain" exactly the words being questioned.
+        """
+        if entity_id:
+            vocab = self._entity_vocab(entity_id)
+        else:
+            vocab = grounding.words(slots.get("name"))
+            if domain := slots.get("domain"):
+                vocab |= {domain} | set(grounding.DOMAIN_WORDS.get(domain, ()))
+        area_reg = ar.async_get(self.hass)
+        if area_name := slots.get("area"):
+            vocab |= grounding.words(area_name)
+            if area := area_reg.async_get_area_by_name(area_name):
+                for alias in area.aliases or ():
+                    vocab |= grounding.words(alias)
+        vocab |= grounding.words(slots.get("floor"))
+        return vocab
 
     def _entity_vocab(self, entity_id: str) -> set[str]:
         """Every word that can legitimately refer to entity_id."""

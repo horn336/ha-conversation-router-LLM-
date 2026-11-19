@@ -81,6 +81,14 @@ plurals are folded ("doors" matches "door").
 | what's the speed of light | switch.jet_speed | light | fallback |
 | is the kitchen light on | light.kitchen_… (area Kitchen) | — | Sophia |
 
+If the pre-check shows Sophia would answer with a "not understood" reply (any
+of the fallback patterns), the request goes straight to the fallback agent
+without Sophia being asked again: her matching isn't deterministic, so a
+second recognition of the same text can land on a device. Matches without a
+single entity (a whole domain, or area + domain such as "set the kitchen
+lights to 50 percent") are checked against the area name and aliases, the
+floor and the domain words instead.
+
 To make a real phrase pass, add an entity or area **alias** for the missing
 word, or list words to ignore under *Extra words the grounding check ignores*.
 Replies inside an ongoing Sophia exchange (answers to her follow-up questions)

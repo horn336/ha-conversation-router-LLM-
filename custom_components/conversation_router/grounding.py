@@ -138,18 +138,48 @@ async def async_recognize(
     return [json.loads(line) for line in raw.decode().splitlines() if line.strip()]
 
 
-def matched_targets(results: list[dict[str, Any]]) -> list[tuple[str, str, list[str]]]:
-    """(intent, entity_id, non-target slot values) for each recognized intent that names an entity."""
+# Slots that place the target (an area or floor named in the sentence).
+PLACE_SLOTS = frozenset({"area", "floor"})
+
+# Intents whose results are replies, not matches.
+REPLY_INTENTS = frozenset({"HassRespond", "HassClarification"})
+
+
+def matched_targets(
+    results: list[dict[str, Any]],
+) -> list[tuple[str, str | None, dict[str, str], list[str]]]:
+    """(intent, entity_id or None, slots, parameter values) per recognized match.
+
+    Includes matches without an entity_id (a whole domain, an area + domain)
+    as long as they name or place a target; slot-less intents such as
+    HassGetCurrentTime are left out.
+    """
     out = []
     for result in results:
         if result.get("type") != "intent":
             continue
         data = result.get("data") or {}
         intent_name = (data.get("intent") or {}).get("name") or ""
-        slots = {e.get("name"): e.get("value") for e in data.get("entities") or [] if e.get("name")}
-        entity_id = slots.get("entity_id")
-        if not entity_id or not isinstance(entity_id, str):
+        if intent_name in REPLY_INTENTS:
             continue
-        params = [str(v) for k, v in slots.items() if k not in TARGET_SLOTS and v is not None]
-        out.append((intent_name, entity_id, params))
+        slots = {
+            str(e.get("name")): str(e.get("value"))
+            for e in data.get("entities") or []
+            if e.get("name") and e.get("value") is not None
+        }
+        if not slots.keys() & (TARGET_SLOTS | PLACE_SLOTS):
+            continue
+        entity_id = slots.get("entity_id") or None
+        params = [v for k, v in slots.items() if k not in TARGET_SLOTS | PLACE_SLOTS]
+        out.append((intent_name, entity_id, slots, params))
+    return out
+
+
+def respond_texts(results: list[dict[str, Any]]) -> list[str]:
+    """Reply texts of HassRespond results (Sophia's canned "didn't understand" lines among them)."""
+    out = []
+    for result in results:
+        data = result.get("data") or {}
+        if (data.get("intent") or {}).get("name") == "HassRespond" and data.get("text"):
+            out.append(str(data["text"]))
     return out
