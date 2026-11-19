@@ -25,7 +25,9 @@
           "rule3_agent": "Rule 3 agent",
           "fallback_agent": "Fallback agent (used when the chosen agent does not understand)",
           "fallback_on_error": "Fall back when the chosen agent returns an error response",
-          "fallback_patterns": "\"Not understood\" reply patterns (one regex per line)"
+          "fallback_patterns": "\"Not understood\" reply patterns (one regex per line)",
+          "grounding_check": "Grounding pre-check (Sophia NLU only): send to the fallback agent when Sophia's match doesn't explain every word",
+          "grounding_extra_words": "Extra words the grounding check ignores (space or newline separated)"
         }
       }
     },

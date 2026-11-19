@@ -33,8 +33,17 @@ DEFAULT_FALLBACK_PATTERNS = "\n".join(
         r"couldn'?t recognize",
         r"don'?t see that (entity|device)",
         r"unable to find the (entity|device)",
+        r"no device matches",
+        r"\bno match\b",
+        r"isn.?t available",
         r"took too long to respond",
         r"could not connect to the nlu",
         r"error communicating with nlu",
     ]
 )
+
+# Grounding pre-check (Sophia NLU agents only): before forwarding, ask Sophia's
+# NLU server what it would match and send the request to the fallback agent
+# when words of the sentence aren't explained by the matched entity.
+CONF_GROUNDING_CHECK = "grounding_check"
+CONF_GROUNDING_EXTRA_WORDS = "grounding_extra_words"

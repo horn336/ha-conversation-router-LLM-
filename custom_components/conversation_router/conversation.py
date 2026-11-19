@@ -9,6 +9,9 @@ from homeassistant.components import conversation
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import TemplateError
+from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import intent
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.template import Template
@@ -20,9 +23,12 @@ from .const import (
     CONF_FALLBACK_AGENT,
     CONF_FALLBACK_ON_ERROR,
     CONF_FALLBACK_PATTERNS,
+    CONF_GROUNDING_CHECK,
+    CONF_GROUNDING_EXTRA_WORDS,
     CONF_RULES,
     DEFAULT_FALLBACK_PATTERNS,
 )
+from . import grounding
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -73,6 +79,8 @@ class ConversationRouterEntity(conversation.ConversationEntity, conversation.Abs
                 "Conversation Router: invalid fallback pattern (%s), using defaults", err
             )
             self._fallback_patterns = compile_patterns(DEFAULT_FALLBACK_PATTERNS)
+        self._grounding_check: bool = options.get(CONF_GROUNDING_CHECK, False)
+        self._grounding_extra = grounding.words(options.get(CONF_GROUNDING_EXTRA_WORDS))
 
     @property
     def supported_languages(self) -> list[str] | Literal["*"]:
@@ -92,12 +100,28 @@ class ConversationRouterEntity(conversation.ConversationEntity, conversation.Abs
                 response=intent_response, conversation_id=user_input.conversation_id
             )
 
+        fallback = self._fallback_agent
+        # Never fall back to the agent that just failed, or to this router (a loop).
+        can_fall_back = bool(fallback) and fallback not in (agent_id, self.entity_id)
+
+        if can_fall_back and self._grounding_check:
+            reason = await self._async_ungrounded_reason(agent_id, user_input)
+            if reason is not None:
+                _LOGGER.info(
+                    "Conversation Router: %s would mis-handle %r (%s), sending to %s instead",
+                    agent_id,
+                    user_input.text,
+                    reason,
+                    fallback,
+                )
+                return await self._async_forward(
+                    fallback, user_input, user_input.conversation_id
+                )
+
         _LOGGER.debug("Conversation Router routing to %s", agent_id)
         result = await self._async_forward(agent_id, user_input, user_input.conversation_id)
 
-        fallback = self._fallback_agent
-        # Never fall back to the agent that just failed, or to this router (a loop).
-        if not fallback or fallback in (agent_id, self.entity_id):
+        if not can_fall_back:
             return result
 
         reason = self._unrecognized_reason(result)
@@ -147,6 +171,87 @@ class ConversationRouterEntity(conversation.ConversationEntity, conversation.Abs
             if pattern.search(speech):
                 return f"reply {speech!r} matched {pattern.pattern!r}"
         return None
+
+    async def _async_ungrounded_reason(
+        self, agent_id: str, user_input: conversation.ConversationInput
+    ) -> str | None:
+        """Pre-check a Sophia NLU agent's match; a reason string means "don't send it there".
+
+        Only applies when agent_id is a sophia_nlu conversation entity. Any
+        failure of the check itself lets the request through unchanged.
+        """
+        ent_reg = er.async_get(self.hass)
+        agent_entry = ent_reg.async_get(agent_id)
+        if agent_entry is None or agent_entry.platform != "sophia_nlu":
+            return None
+        config_entry = self.hass.config_entries.async_get_entry(agent_entry.config_entry_id)
+        if config_entry is None:
+            return None
+        conf = {**config_entry.data, **config_entry.options}
+        host, port = conf.get("host"), conf.get("port")
+        if not host or not port:
+            return None
+
+        # A reply inside an ongoing Sophia exchange ("which light?" -> "the
+        # kitchen one") is meaningless out of context, so leave it alone.
+        if user_input.conversation_id:
+            component = self.hass.data.get("entity_components", {}).get("conversation")
+            agent = component.get_entity(agent_id) if component else None
+            is_reply = getattr(agent, "_is_reply", None)
+            try:
+                if callable(is_reply) and is_reply(user_input.conversation_id):
+                    return None
+            except Exception:  # noqa: BLE001 - private API; never block on it
+                pass
+
+        try:
+            results = await grounding.async_recognize(
+                host, int(port), user_input.text, user_input.language
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Conversation Router: grounding pre-check skipped (%s)", err)
+            return None
+
+        try:
+            for intent_name, entity_id, params in grounding.matched_targets(results):
+                left = grounding.unexplained_words(
+                    user_input.text,
+                    self._entity_vocab(entity_id),
+                    params,
+                    self._grounding_extra,
+                )
+                if left:
+                    return f"{intent_name} on {entity_id} leaves {', '.join(left)} unexplained"
+        except Exception:  # noqa: BLE001 - a broken check must not break the assistant
+            _LOGGER.exception("Conversation Router: grounding check failed; not applied")
+        return None
+
+    def _entity_vocab(self, entity_id: str) -> set[str]:
+        """Every word that can legitimately refer to entity_id."""
+        domain, object_id = entity_id.split(".", 1)
+        vocab = grounding.words(object_id.replace("_", " ")) | {domain}
+        vocab |= set(grounding.DOMAIN_WORDS.get(domain, ()))
+        if (state := self.hass.states.get(entity_id)) is not None:
+            vocab |= grounding.words(state.name)
+
+        entry = er.async_get(self.hass).async_get(entity_id)
+        if entry is None:
+            return vocab
+        vocab |= grounding.words(entry.name) | grounding.words(entry.original_name)
+        for alias in entry.aliases or ():
+            vocab |= grounding.words(alias)
+
+        area_ids = {entry.area_id}
+        if entry.device_id and (device := dr.async_get(self.hass).async_get(entry.device_id)):
+            vocab |= grounding.words(device.name_by_user) | grounding.words(device.name)
+            area_ids.add(device.area_id)
+        area_reg = ar.async_get(self.hass)
+        for area_id in area_ids - {None}:
+            if area := area_reg.async_get_area(area_id):
+                vocab |= grounding.words(area.name)
+                for alias in area.aliases or ():
+                    vocab |= grounding.words(alias)
+        return vocab
 
     def _resolve_agent_id(self) -> str | None:
         options = self._entry.options

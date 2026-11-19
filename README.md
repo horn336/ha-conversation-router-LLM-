@@ -57,12 +57,38 @@ local LLM (e.g. Qwen via LM Studio/Ollama) as the fallback, so commands stay
 instant and anything else is answered by the LLM. The fallback never fires
 when the fallback agent is the one that just answered, or is the router itself.
 
-**Limitation:** the router can only catch replies that *say* they failed. If
-the first agent confidently matches the wrong intent (an NLU without a
-confidence score fuzzy-matching a question onto some device), that reply looks
-like success and is returned as-is — and any action it took has already run.
+The reply check alone can't catch a *confident wrong* match (an NLU without a
+real confidence score fuzzy-matching a question onto some device): that reply
+looks like success, and any action it took has already run. For Sophia NLU
+there is a pre-check for that:
 
-Each fallback is logged at `info` level by
+### Grounding pre-check (Sophia NLU only)
+
+With *Grounding pre-check* on, before forwarding to a `sophia_nlu` agent the
+router asks Sophia's NLU server what it **would** match (recognition only,
+nothing executes). If the matched entity doesn't explain every meaningful word
+of the sentence, the request goes straight to the fallback agent and Sophia
+never sees it. An entity explains a word through its entity id, its name,
+its aliases, its device name, its area (and area aliases), or words for its
+domain ("lamp" for a light). Intent parameters (state, brightness, color,
+numbers) and filler words ("what", "the", "please", "turn") are ignored, and
+plurals are folded ("doors" matches "door").
+
+| Said | Sophia would match | Unexplained | Result |
+|---|---|---|---|
+| how much propane is left | HassTurnOn → cover.garage_door | propane, left | fallback |
+| how deep is the ocean | cover.garage_door | deep, ocean | fallback |
+| what's the speed of light | switch.jet_speed | light | fallback |
+| is the kitchen light on | light.kitchen_… (area Kitchen) | — | Sophia |
+
+To make a real phrase pass, add an entity or area **alias** for the missing
+word, or list words to ignore under *Extra words the grounding check ignores*.
+Replies inside an ongoing Sophia exchange (answers to her follow-up questions)
+skip the check, and if the check itself fails (server unreachable, etc.) the
+request goes to Sophia as before. The check adds one local round trip to the
+NLU server (a few milliseconds).
+
+Each fallback and each grounding redirect is logged at `info` level by
 `custom_components.conversation_router`.
 
 ## Installation (HACS)

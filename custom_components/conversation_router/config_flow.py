@@ -16,6 +16,8 @@ from .const import (
     CONF_FALLBACK_AGENT,
     CONF_FALLBACK_ON_ERROR,
     CONF_FALLBACK_PATTERNS,
+    CONF_GROUNDING_CHECK,
+    CONF_GROUNDING_EXTRA_WORDS,
     CONF_RULES,
     DEFAULT_FALLBACK_PATTERNS,
     DOMAIN,
@@ -79,6 +81,8 @@ class ConversationRouterOptionsFlow(config_entries.OptionsFlow):
                     CONF_FALLBACK_AGENT: user_input.get(CONF_FALLBACK_AGENT),
                     CONF_FALLBACK_ON_ERROR: user_input.get(CONF_FALLBACK_ON_ERROR, True),
                     CONF_FALLBACK_PATTERNS: patterns,
+                    CONF_GROUNDING_CHECK: user_input.get(CONF_GROUNDING_CHECK, False),
+                    CONF_GROUNDING_EXTRA_WORDS: user_input.get(CONF_GROUNDING_EXTRA_WORDS) or "",
                 }
             )
 
@@ -133,6 +137,18 @@ class ConversationRouterOptionsFlow(config_entries.OptionsFlow):
                         CONF_FALLBACK_PATTERNS, DEFAULT_FALLBACK_PATTERNS
                     )
                 },
+            )
+        ] = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
+        schema_dict[
+            vol.Optional(
+                CONF_GROUNDING_CHECK,
+                default=current.get(CONF_GROUNDING_CHECK, False),
+            )
+        ] = selector.BooleanSelector()
+        schema_dict[
+            vol.Optional(
+                CONF_GROUNDING_EXTRA_WORDS,
+                description={"suggested_value": current.get(CONF_GROUNDING_EXTRA_WORDS, "")},
             )
         ] = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
 
